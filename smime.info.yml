@@ -1,0 +1,5 @@
+name: S/MIME
+type: module
+description: 'Enables S/MIME signatures for outgoing mail.'
+package: smime
+# core: 8.x
