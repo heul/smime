@@ -1,0 +1,10 @@
+name = S/MIME
+description = Enables S/MIME signatures for outgoing mail.
+core = 6.x
+
+; Information added by drupal.org packaging script on 2013-10-01
+version = "6.x-1.x-dev"
+core = "6.x"
+project = "smime"
+datestamp = "1380628866"
+

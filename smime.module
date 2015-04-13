@@ -1,0 +1,150 @@
+<?php
+
+/**
+ * @file
+ * S/MIME module.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function smime_menu() {
+  return array(
+    'admin/settings/smime' => array(
+      'title' => 'S/MIME Certificates',
+      'description' => 'Manage S/MIME certificates.',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('smime_settings'),
+      'access arguments' => array('administer site configuration'),
+      'file' => 'smime.admin.inc',
+    ),
+    'admin/settings/smime/view/%smime' => array(
+      'title' => 'Details',
+      'description' => 'View certificate',
+      'page callback' => 'smime_view_page',
+      'page arguments' => array(4),
+      'access arguments' => array('administer site configuration'),
+      'file' => 'smime.admin.inc',
+    ),
+  'admin/settings/smime/download/%smime' => array(
+    'title' => 'Download',
+    'description' => 'Download certificate',
+    'page callback' => 'smime_download_page',
+    'page arguments' => array(4),
+    'access arguments' => array('administer site configuration'),
+    'file' => 'smime.admin.inc',
+  ),
+    'admin/settings/smime/delete/%smime' => array(
+      'title' => 'Delete certificate',
+      'page callback' => 'drupal_get_form',
+      'page arguments' => array('smime_delete_confirm', 4),
+      'access arguments' => array('administer site configuration'),
+      'file' => 'smime.admin.inc',
+    ),
+  );
+}
+
+/**
+ * Add a new S/MIME certificate.
+ *
+ * @param $cert Certificate data in PKCS12 format.
+ */
+function smime_add($cert) {
+  $certs = array();
+  if (openssl_pkcs12_read($cert, $certs, '')) {
+    $parsed_cert = openssl_x509_parse($certs['cert']);
+    if (isset($parsed_cert['subject']['emailAddress'])) {
+      $record['email'] = $parsed_cert['subject']['emailAddress'];
+      $record['expires'] = $parsed_cert['validTo_time_t'];
+      $record['issuer'] = $parsed_cert['issuer']['CN'];
+      $record['cert'] = $cert;
+      drupal_write_record('smime', $record);
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+
+/**
+ * Load a certificate.
+ */
+function smime_load($cert_id) {
+  return db_fetch_array(db_query("SELECT * FROM {smime} WHERE id = %d", $cert_id));
+}
+
+/**
+ * Delete a certificate.
+ */
+function smime_delete($cert_id) {
+  db_query("DELETE FROM {smime} WHERE id = %d", $cert_id);
+}
+
+/**
+ * Implements hook_mail_alter().
+ */
+function smime_mail_alter(&$message) {
+  // If another smtp_library is in use, e.g. mimemail, don't alter the message.
+  if (variable_get('smtp_library', '')) {
+    return;
+  }
+
+  smime_process_mail($message);
+}
+
+/**
+ * Adds the S/MIME signature.  In the future this function may also encrypt the mail.
+ */
+function smime_process_mail(&$message) {
+  smime_sign($message);
+}
+
+/**
+ * Add an S/MIME signature.
+ *
+ * @param $message Message array, see drupal_mail_send() for keys.
+ */
+function smime_sign(&$message) {
+  $cert = db_result(db_query("SELECT cert FROM {smime} WHERE email = '%s'", $message['from']));
+  if (empty($cert)) {
+    return;
+  }
+  $certs = array();
+  if (!openssl_pkcs12_read($cert, $certs, '')) {
+    return;
+  }
+
+  $message_file = $temp_file = tempnam(file_directory_temp(), 'smime_');
+  $signed_file = $temp_file = tempnam(file_directory_temp(), 'smime_');
+
+  // Concatenate and wrap the e-mail body.
+  $body = is_array($message['body']) ? drupal_wrap_mail(implode("\n\n", $message['body'])) : drupal_wrap_mail($message['body']);
+  // We have to wrap twice, otherwise we have soft wraps that turn
+  // into hard wraps in drupal_mail() and that breaks the signature.
+  $body = drupal_wrap_mail($body);
+
+  file_put_contents($message_file, $body);
+
+  openssl_pkcs7_sign($message_file, $signed_file, $certs['cert'], array($certs['pkey'], ''), array());
+
+  $fp = fopen($signed_file, 'r');
+  // Read the message headers.
+  while ($line = trim(fgets($fp))) {
+    if ($line != '') {
+      $parts = explode(': ', $line, 2);
+      $message['headers'][$parts[0]] = $parts[1];
+    }
+    else {
+      break;
+    }
+  }
+
+  // Read the message body.
+  $message['body'] = '';
+  while ($line = fgets($fp)) {
+    $message['body'] .= $line;
+  }
+
+  // Clean up.
+  unlink($message_file);
+  unlink($signed_file);
+}

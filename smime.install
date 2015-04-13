@@ -1,0 +1,72 @@
+<?php
+
+/**
+ * @file
+ * Install and uninstall schema and functions for the S/MIME module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function smime_schema() {
+  $schema['smime'] = array(
+    'description' => 'Stores S/MIME certificates.',
+    'fields' => array(
+      'id' => array(
+        'type' => 'serial',
+        'not null' => TRUE,
+      ),
+      'email' => array(
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+      ),
+      'expires' => array(
+        'type' => 'int',
+        'not null' => TRUE,
+      ),
+      'issuer' => array(
+        'type' => 'varchar',
+        'length' => 1000,
+        'not null' => TRUE,
+      ),
+      'cert' => array(
+        'type' => 'blob',
+        'not null' => TRUE,
+      ),
+    ),
+    'primary key' => array('id'),
+    'unique keys' => array('email' => array('email')),
+  );
+  return $schema;
+}
+
+/**
+ * Implements hook_install().
+ */
+function smime_install() {
+  drupal_install_schema('smime');
+}
+
+/**
+ * Implements hook_uninstall().
+ */
+function smime_uninstall() {
+  drupal_uninstall_schema('smime');
+}
+
+/**
+ * Implements hook_requirements().
+ */
+function smime_requirements($phase) {
+  $t = get_t();
+  $requirements = array();
+  if (!in_array('openssl', get_loaded_extensions())) {
+    $requirements['openssl'] = array(
+      'title' => 'OpenSSL',
+      'severity' => REQUIREMENT_ERROR,
+      'description' => $t('The <a href="!url">OpenSSL</a> extension must be installed to use S/MIME.', array('!url' => 'http://php.net/openssl')),
+    );
+  }
+  return $requirements;
+}
